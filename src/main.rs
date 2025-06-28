@@ -33,7 +33,22 @@ fn main() {
             }
         }
         3 => {
-
+            match args.get(1).map(|s| s.as_str()) {
+                Some("enable") | Some("disable") => {
+                    let cmd = args.get(1).expect("error getting the cmd").as_str();
+                    if let Some(service) = args.get(2) {
+                        Job::alter_service(cmd,service);
+                    } else {
+                        println!("Missing operant after \"{}\".",cmd);
+                    }
+                }
+                Some(other) => {
+                    println!("Unreconized command  \"{}\".",args[1]);
+                }
+                None => {
+                    println!("Nothing found");
+                }
+            }
         }
         _ => {
             println!("Command too long.");

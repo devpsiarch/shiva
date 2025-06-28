@@ -8,12 +8,13 @@ use std::path::Path;
 use std::fs::File;
 use std::fs;
 use prettytable::{Table, Row, Cell};
+use std::process::Command;
 
 // ~/programming/shiva && ./shiva => ./home/devpsiarch/shiva/shiva
 // ~/programming/shiva && ./check ; ./build run => ./home/devpsiarch/shiva/shiva
 
 const LEDGER_FILE: &str = "~/.shiva_ledger.json";
-const SERVICE_DIR: &str = "/etc/systemd/system/";
+const SERVICE_DIR: &str = "/etc/systemd/system";
  
 enum StatusApp {
     Running,
@@ -160,8 +161,8 @@ impl Job {
             desc,dir,exe_path)
     }
 
-    fn make_serice_file_name(name:&str) -> String {
-        format!("shiva-<{}>.service",name)
+    fn make_service_file_name(name:&str) -> String {
+        format!("{}/shiva-{}.service",SERVICE_DIR,name)
     }
 
     fn create_entry() -> Result<(),String> {
@@ -169,10 +170,10 @@ impl Job {
             Ok(s) => s,
             Err(e) => return Err("Error creating an entry from \"wizard\"".to_string()),
         };
-        let file_name = Self::make_serice_file_name(&entry.name);
+        let file_name = Self::make_service_file_name(&entry.name);
         let mut service_file = match std::fs::File::create(file_name.clone()) {
             Ok(f) => f,
-            Err(e) => return Err("could not create service file.".to_string()),
+            Err(e) => return Err((format!("could not create service file.{} ",e))),
         };
 
         let write_result = match service_file.write(Self::make_service_template(
@@ -226,6 +227,42 @@ impl Job {
         let result_entry = Self::create_entry().unwrap_or_else(|error| {
             panic!("Error creating a service, {error:?}");
         });
+    }
+
+    fn handle_display_cmd_result(result:&std::process::Output) {
+        if result.status.success() {
+            print!("✅ Command succeeded.");
+            if !result.stdout.is_empty() {
+                print!("stdout:\n{}", String::from_utf8_lossy(&result.stdout));
+            }
+        } else {
+            println!("❌ Command failed with exit code: {}", result.status);
+            if !result.stderr.is_empty() {
+                print!("stderr:\n{}", String::from_utf8_lossy(&result.stderr));
+            }
+            if !result.stdout.is_empty() {
+                print!("stdout:\n{}", String::from_utf8_lossy(&result.stdout));
+            }
+        }
+    }
+
+    pub fn alter_service(state:&str,name:&str) {
+        let result = Command::new("systemctl")
+            .arg(state)
+            .arg(Self::make_service_file_name(&name))
+            .output()
+            .unwrap_or_else(|error| {
+                panic!("Could not enable service due to : {}",error);
+            });
+            Self::handle_display_cmd_result(&result); 
+    }
+
+    pub fn start_service() {
+
+    }
+    
+    pub fn stop_service() {
+
     }
 
 }
