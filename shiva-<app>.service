@@ -1,0 +1,14 @@
+
+            [Unit]
+            Description=app app managed by shiva 
+            After=network.target
+
+            [Service]
+            Type=simple
+            WorkingDirectory=/home/devpsiarch/programming/app
+            ExecStart=./app
+            Restart=on-failure
+
+            [Install]
+            WantedBy=multi-user.target
+            

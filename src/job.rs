@@ -1,8 +1,13 @@
 use std::io;
-use std::io::{Write};
+use std::io::{Write,Read};
 pub mod typeapp;
 use crate::typeapp::*;
 use serde_json::json;
+use serde_json::Value;
+use std::path::Path;
+use std::fs::File;
+use std::fs;
+use prettytable::{Table, Row, Cell};
 
 // ~/programming/shiva && ./shiva => ./home/devpsiarch/shiva/shiva
 // ~/programming/shiva && ./check ; ./build run => ./home/devpsiarch/shiva/shiva
@@ -54,8 +59,48 @@ impl Job {
         }
     }
 
-    pub fn read(filepath:&String) -> Result<Self,String> {
-        Err(String::from("Unimplimented"))
+    fn read_ledger() -> serde_json::Value {
+        let expanded: std::borrow::Cow<'_, str> = shellexpand::tilde(LEDGER_FILE);
+        let mut content = fs::read_to_string(expanded.into_owned()).unwrap_or_else(|_| "[]".to_string());
+        serde_json::from_str(&content).expect("Could not read Value from ledger")
+    }
+
+    pub fn list_services() {
+        let v = Self::read_ledger();
+        let arr = match v {
+            Value::Array(s) => s,
+            _ => {
+                println!("Expected a JSON object");
+                return;
+            }
+        };
+
+        let cols: Vec<String> = if let Some(Value::Object(first)) = arr.get(0) {
+            let mut keys: Vec<_> = first.keys().cloned().collect();
+            keys.sort();
+            keys
+        }else{
+            println!("No services or first entry is faulty.");
+            return;
+        };
+
+        let mut table = Table::new();
+        // header row 
+        table.add_row(Row::new(
+            cols.iter().map(|h| Cell::new(h)).collect()
+        ));
+        for obj in arr {
+            if let Value::Object(map) = obj {
+                let row = cols.iter().map(|key| {
+                    let cell = map
+                    .get(key)
+                    .map_or("".to_string(), |v| v.to_string());
+                    Cell::new(&cell)
+                });
+                table.add_row(Row::new(row.collect()));
+            }
+        }
+        table.printstd();
     }
 
     fn execute(&self) -> Result<(),String> {
@@ -155,27 +200,25 @@ impl Job {
 
         let expanded: std::borrow::Cow<'_, str> = shellexpand::tilde(LEDGER_FILE);
 
-        let ledger_file = match std::fs::OpenOptions::new()
-            .append(true)
-            .create(true)
-            .write(true)
-            .open(expanded.into_owned()) {
-            Ok(s) => s,
-            Err(e) => {
-                let clean_up = std::fs::remove_file(file_name.clone()).unwrap_or_else(|error|{
-                    panic!("problem cleaning up after failing to create write entry in ledger. {error:?}");
-                });
-                return Err(format!("Could not open the ledger file. {}",e));
-            }
-        };
+        let file_path = expanded.clone().into_owned();
+
+        let content = fs::read_to_string(expanded.into_owned()).unwrap_or_else(|_| "[]".to_string()); 
+
+        let mut v = serde_json::from_str(&content).expect("Ledger did not have corret format.");
+        if let Value::Array(ref mut arr) = v {
+            arr.push(json_entry);
+        }else{
+            return Err("Expected json root to be array.".to_string());
+        }
         
-        serde_json::to_writer_pretty(ledger_file,&json_entry).unwrap_or_else(|error| {
-            // clean up the service file created before 
-            let clean_up = std::fs::remove_file(file_name).unwrap_or_else(|error|{
-                panic!("problem cleaning up after failing to create write entry in ledger. {error:?}");
-            }); 
+        let pretty = serde_json::to_string_pretty(&v)
+        .expect("Failed to serialize JSON");
+
+        fs::write(file_path.clone(), pretty).unwrap_or_else(|_|{
+            panic!("Could not write to file");
         });
 
+        println!("✅ Successfully added new entry to `{}`", file_path);
         Ok(())
     } 
 

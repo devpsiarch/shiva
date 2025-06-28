@@ -21,6 +21,7 @@ fn main() {
                 }
                 "list" => {
                     // call list_jobs
+                    Job::list_services();
                 }
                 "create" => {
                     // call wizard_promt job creator for now
