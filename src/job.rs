@@ -13,28 +13,8 @@ use std::process::Command;
 // ~/programming/shiva && ./shiva => ./home/devpsiarch/shiva/shiva
 // ~/programming/shiva && ./check ; ./build run => ./home/devpsiarch/shiva/shiva
 
-const LEDGER_FILE: &str = "~/.shiva_ledger.json";
+const LEDGER_FILE: &str = ".shiva_ledger.json";
 const SERVICE_DIR: &str = "/etc/systemd/system";
- 
-enum StatusApp {
-    Running,
-    Sleep,
-    Crashed,
-    Stopped,
-    Dead,
-}
-
-impl StatusApp {
-    pub fn name(&self) -> &'static str {
-        match self {
-            StatusApp::Running => return "Running",
-            StatusApp::Sleep => return "Sleep",
-            StatusApp::Crashed => return "Crashed",
-            StatusApp::Stopped => return "Stopped",
-            StatusApp::Dead => return "Dead",
-        }
-    }
-}
 
 pub struct Job {
     name:String,
@@ -42,7 +22,6 @@ pub struct Job {
     mainDir:String,
     needRoot:bool,
     command:String,
-    state:StatusApp,
 }
 
 impl Job {
@@ -56,7 +35,6 @@ impl Job {
             mainDir:m.to_string(),
             needRoot:r,
             command:c.to_string(),
-            state:StatusApp::Dead,
         }
     }
 
@@ -64,6 +42,13 @@ impl Job {
         let expanded: std::borrow::Cow<'_, str> = shellexpand::tilde(LEDGER_FILE);
         let mut content = fs::read_to_string(expanded.into_owned()).unwrap_or_else(|_| "[]".to_string());
         serde_json::from_str(&content).expect("Could not read Value from ledger")
+    }
+
+    fn write_ledger(v:&Value,file_path:&str) {
+        let pretty = serde_json::to_string_pretty(&v).unwrap();
+        fs::write(file_path, pretty).unwrap_or_else(|_|{
+            panic!("Could not write to file");
+        }); 
     }
 
     pub fn list_services() {
@@ -104,10 +89,6 @@ impl Job {
         table.printstd();
     }
 
-    fn execute(&self) -> Result<(),String> {
-        Ok(())
-    }
-    
     /*
     * @brief Walks You though setting up a job
     * */
@@ -162,7 +143,7 @@ impl Job {
     }
 
     fn make_service_file_name(name:&str) -> String {
-        format!("{}/shiva-{}.service",SERVICE_DIR,name)
+        format!("shiva-{}.service",name)
     }
 
     fn create_entry() -> Result<(),String> {
@@ -170,7 +151,7 @@ impl Job {
             Ok(s) => s,
             Err(e) => return Err("Error creating an entry from \"wizard\"".to_string()),
         };
-        let file_name = Self::make_service_file_name(&entry.name);
+        let file_name = format!("{}/{}",SERVICE_DIR,Self::make_service_file_name(&entry.name));
         let mut service_file = match std::fs::File::create(file_name.clone()) {
             Ok(f) => f,
             Err(e) => return Err((format!("could not create service file.{} ",e))),
@@ -196,7 +177,6 @@ impl Job {
             "mainDir":entry.mainDir,
             "needRoot":entry.needRoot,
             "command":entry.command,
-            "state":entry.state.name() 
         }); 
 
         let expanded: std::borrow::Cow<'_, str> = shellexpand::tilde(LEDGER_FILE);
@@ -212,12 +192,7 @@ impl Job {
             return Err("Expected json root to be array.".to_string());
         }
         
-        let pretty = serde_json::to_string_pretty(&v)
-        .expect("Failed to serialize JSON");
-
-        fs::write(file_path.clone(), pretty).unwrap_or_else(|_|{
-            panic!("Could not write to file");
-        });
+        Self::write_ledger(&v,&file_path); 
 
         println!("✅ Successfully added new entry to `{}`", file_path);
         Ok(())
@@ -257,12 +232,80 @@ impl Job {
             Self::handle_display_cmd_result(&result); 
     }
 
-    pub fn start_service() {
-
+    pub fn remove_service(name:&str) {
+        Self::alter_service("stop",name);
+        Self::alter_service("disable",name);
+        let target = format!("{}/{}",SERVICE_DIR,Self::make_service_file_name(name));
+        let result = Command::new("rm")
+            .arg(target)
+            .output()
+            .unwrap_or_else(|error| {
+                panic!("Could not enable service due to : {}",error);
+            });
+        Self::handle_display_cmd_result(&result);         
+        let mut v = Self::read_ledger();
+        if let Value::Array(ref mut arr) = v {
+            if let Some(pos) = arr
+                .iter()
+                .position(|item| {
+                    item.get("name")
+                    .and_then(Value::as_str)
+                        .map_or(false,|s| s == name)
+                })
+            {
+                println!("Entry found,deleting ...");
+                arr.remove(pos);
+                Self::write_ledger(&v,LEDGER_FILE);
+            } else {
+                println!("Entry not found for deleting");
+            }
+        } else {
+            println!("No services or first entry is faulty.");
+        }
     }
-    
-    pub fn stop_service() {
 
+    pub fn log_service(name:&str) {
+        let result = Command::new("journalctl")
+            .arg("-u")
+            .arg(Self::make_service_file_name(&name))
+            .output()
+            .unwrap_or_else(|error| {
+                panic!("Could not enable service due to : {}",error);
+            });
+            Self::handle_display_cmd_result(&result); 
     }
 
+    pub fn backup_service(name:&str) {
+        let mut v = Self::read_ledger();
+        if let Value::Array(ref mut arr) = v {
+            if let Some(pos) = arr
+                .iter()
+                .position(|item| {
+                    item.get("name")
+                    .and_then(Value::as_str)
+                        .map_or(false,|s| s == name)
+                })
+            {
+                println!("Entry found,backing ...");
+                let path_str: &str = arr[pos]
+                    .get("mainDir")                         
+                    .and_then(Value::as_str)                
+                    .expect("`mainDir` must be a JSON string");
+
+                let result = Command::new("tar")
+                    .arg("-czvf")
+                    .arg(format!("backup-{}.tar.gz", Self::make_service_file_name(name)))
+                    .arg(path_str)                          
+                    .output()
+                    .unwrap_or_else(|error| {
+                        panic!("Could not create backup due to: {}", error);
+                    });
+                Self::handle_display_cmd_result(&result); 
+            } else {
+                println!("Entry not found for deleting");
+            }
+        } else {
+            println!("No services or first entry is faulty.");
+        }
+    }
 }

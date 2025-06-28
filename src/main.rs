@@ -34,10 +34,34 @@ fn main() {
         }
         3 => {
             match args.get(1).map(|s| s.as_str()) {
-                Some("enable") | Some("disable") => {
+                Some("enable") | Some("disable") | Some("kill") | Some("start") | Some("stop") | Some("status") => {
                     let cmd = args.get(1).expect("error getting the cmd").as_str();
                     if let Some(service) = args.get(2) {
                         Job::alter_service(cmd,service);
+                    } else {
+                        println!("Missing operant after \"{}\".",cmd);
+                    }
+                }
+                Some("remove") => {
+                    let cmd = args.get(1).expect("error getting the cmd").as_str();
+                    if let Some(service) = args.get(2) {
+                        Job::remove_service(service);
+                    } else {
+                        println!("Missing operant after \"{}\".",cmd);
+                    }
+                }
+                Some("log") => {
+                    let cmd = args.get(1).expect("error getting the cmd").as_str();
+                    if let Some(service) = args.get(2) {
+                        Job::log_service(service);
+                    } else {
+                        println!("Missing operant after \"{}\".",cmd);
+                    }
+                }
+                Some("backup") => {
+                    let cmd = args.get(1).expect("error getting the cmd").as_str();
+                    if let Some(service) = args.get(2) {
+                        Job::backup_service(service);
                     } else {
                         println!("Missing operant after \"{}\".",cmd);
                     }
@@ -54,4 +78,5 @@ fn main() {
             println!("Command too long.");
         }
     }
+    
 }
