@@ -7,7 +7,7 @@ use serde_json::json;
 // ~/programming/shiva && ./shiva => ./home/devpsiarch/shiva/shiva
 // ~/programming/shiva && ./check ; ./build run => ./home/devpsiarch/shiva/shiva
 
-const LEDGER_FILE: &str = "ledger.json";
+const LEDGER_FILE: &str = "~/.shiva_ledger.json";
 const SERVICE_DIR: &str = "/etc/systemd/system/";
  
 enum StatusApp {
@@ -105,14 +105,14 @@ impl Job {
 
             [Service]
             Type=simple
-            ExecStart={}
             WorkingDirectory={}
+            ExecStart={}
             Restart=on-failure
 
             [Install]
             WantedBy=multi-user.target
             "#,
-            desc,exe_path,dir)
+            desc,dir,exe_path)
     }
 
     fn make_serice_file_name(name:&str) -> String {
@@ -140,7 +140,7 @@ impl Job {
                 std::fs::remove_file(file_name).unwrap_or_else(|error|{
                     panic!("problem cleaning up after failing to create service file. {error:?}");
                 }); 
-                return Err("Could not write bytes to service file.".to_string());
+                return Err(format!("Could not write bytes to service file. {}",e));
             }
         };
     
@@ -153,12 +153,20 @@ impl Job {
             "state":entry.state.name() 
         }); 
 
+        let expanded: std::borrow::Cow<'_, str> = shellexpand::tilde(LEDGER_FILE);
+
         let ledger_file = match std::fs::OpenOptions::new()
             .append(true)
             .create(true)
-            .open(LEDGER_FILE) {
+            .write(true)
+            .open(expanded.into_owned()) {
             Ok(s) => s,
-            Err(e) => return Err("Could not open the ledger file.".to_string()),
+            Err(e) => {
+                let clean_up = std::fs::remove_file(file_name.clone()).unwrap_or_else(|error|{
+                    panic!("problem cleaning up after failing to create write entry in ledger. {error:?}");
+                });
+                return Err(format!("Could not open the ledger file. {}",e));
+            }
         };
         
         serde_json::to_writer_pretty(ledger_file,&json_entry).unwrap_or_else(|error| {
